@@ -4,7 +4,7 @@ RouchDB uses an adapter pattern to separate the database API from the underlying
 
 ## Built-In Adapters
 
-RouchDB ships with three adapters. Each has a convenience constructor on the `Database` type.
+RouchDB ships with four adapters. Three have convenience constructors on the `Database` type; the IndexedDB adapter is constructed directly (WASM only).
 
 ### MemoryAdapter
 
@@ -39,6 +39,28 @@ The first argument is the filesystem path for the redb file. The second is the l
 - Any scenario where data must survive process restarts.
 - Offline-capable applications that sync when connectivity returns.
 
+### IndexedDbAdapter
+
+Persistent storage in the browser via the [IndexedDB](https://developer.mozilla.org/en-US/docs/Web/API/IndexedDB_API) API. This adapter is **WASM-only** (`#[cfg(target_arch = "wasm32")]`) and is intended for browser applications compiled with `wasm-pack` or similar tooling.
+
+```rust
+use rouchdb::{Database, IndexedDbAdapter};
+use std::sync::Arc;
+
+// In an async context inside a WASM application:
+let adapter = IndexedDbAdapter::open("mydb").await?;
+let db = Database::from_adapter(Arc::new(adapter));
+```
+
+The database name is used as the IndexedDB database name in the browser.
+
+**When to use:**
+- Browser-based Rust/WASM applications that need local-first persistence.
+- Offline-capable web apps that sync with a CouchDB server when online.
+- Replacing `localStorage` with a structured, replicated document store.
+
+> **Note:** Because IndexedDB is single-threaded in the browser, the adapter does not require `Send + Sync`. Use `MaybeSend`/`MaybeSync` from `rouchdb_core` when writing WASM-compatible plugin or adapter code.
+
 ### HttpAdapter
 
 Connects to a remote CouchDB (or compatible) server over HTTP. All operations are translated to CouchDB REST API calls.
@@ -66,7 +88,9 @@ let db = Database::http("http://admin:password@localhost:5984/mydb");
 | Tests | `Database::memory()` |
 | Desktop / mobile / CLI app | `Database::open()` (redb) |
 | Server talking to CouchDB | `Database::http()` |
-| Local-first with sync | `Database::open()` locally, `Database::http()` for the remote, then `sync()` |
+| Local-first with sync (native) | `Database::open()` locally, `Database::http()` for the remote, then `sync()` |
+| Browser / WASM application | `IndexedDbAdapter::open()` + `Database::from_adapter()` |
+| Browser app syncing with CouchDB | `IndexedDbAdapter` locally, `Database::http()` for the remote, then `sync()` |
 
 ## Using Database::from_adapter
 
@@ -124,7 +148,9 @@ pub struct MyAdapter {
     // your storage state
 }
 
-#[async_trait]
+// Use async_trait(?Send) on wasm32 to match the Adapter trait's declaration.
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 impl Adapter for MyAdapter {
     async fn info(&self) -> Result<DbInfo> { todo!() }
 

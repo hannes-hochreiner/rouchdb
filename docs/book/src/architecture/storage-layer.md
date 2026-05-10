@@ -1,9 +1,12 @@
-# Storage Layer
+# Storage Layer (redb)
 
-The `rouchdb-adapter-redb` crate provides persistent local storage backed by
-[redb](https://github.com/cberner/redb), a pure-Rust embedded key-value store
-with ACID transactions. This document describes the table schema, key/value
-formats, serialization approach, and transactional guarantees.
+The `rouchdb-adapter-redb` crate provides persistent local storage for **native
+(non-WASM) targets** backed by [redb](https://github.com/cberner/redb), a
+pure-Rust embedded key-value store with ACID transactions. This document
+describes the table schema, key/value formats, serialization approach, and
+transactional guarantees.
+
+> For the browser/WASM storage layer see [Storage Layer (IndexedDB)](indexeddb-storage.md).
 
 ## Why redb
 
@@ -192,10 +195,6 @@ appear in the changes feed or in `_all_docs` results.
 
 Content-addressable storage means identical attachments are stored only once
 regardless of how many documents reference them.
-
-> **Note:** Attachment support in the redb adapter is not yet fully
-> implemented. The table is created on initialization but the `put_attachment`
-> and `get_attachment` methods currently return errors.
 
 ### META_TABLE (`"metadata"`)
 

@@ -33,8 +33,9 @@ Pick exactly what you need:
 |-------|-------------|
 | `rouchdb-core` | Types, traits, revision tree, collation, errors |
 | `rouchdb-adapter-memory` | In-memory adapter (testing, ephemeral data) |
-| `rouchdb-adapter-redb` | Persistent local storage via redb |
+| `rouchdb-adapter-redb` | Persistent local storage via redb (native only) |
 | `rouchdb-adapter-http` | CouchDB HTTP client adapter |
+| `rouchdb-adapter-indexeddb` | Browser-local storage via IndexedDB (WASM only) |
 | `rouchdb-changes` | Changes feed (one-shot and live streaming) |
 | `rouchdb-replication` | CouchDB replication protocol |
 | `rouchdb-query` | Mango selectors and map/reduce views |
@@ -42,6 +43,35 @@ Pick exactly what you need:
 | `rouchdb-server` | CouchDB-compatible HTTP server with Fauxton |
 | `rouchdb-cli` | CLI tool for inspecting databases |
 | `rouchdb` | Umbrella crate — re-exports everything above |
+
+## Browser / WASM Applications
+
+For browser applications compiled with `wasm-pack` or `cargo build --target wasm32-unknown-unknown`, use `rouchdb-adapter-indexeddb` directly. This crate is gated with `#[cfg(target_arch = "wasm32")]` and will only compile for WASM targets.
+
+```toml
+[dependencies]
+rouchdb-adapter-indexeddb = "0.3"
+rouchdb-core = "0.3"
+serde_json = "1"
+wasm-bindgen = "0.2"
+```
+
+Opening a database in the browser:
+
+```rust
+use rouchdb_adapter_indexeddb::IndexedDbAdapter;
+use rouchdb_core::adapter::Adapter;
+use rouchdb_core::document::{Document, BulkDocsOptions};
+
+#[wasm_bindgen]
+pub async fn run() -> Result<(), JsValue> {
+    let adapter = IndexedDbAdapter::open("myapp-db").await?;
+    // use adapter directly, or wrap in rouchdb::Database::from_adapter()
+    Ok(())
+}
+```
+
+> **Note:** `rouchdb-adapter-redb` is excluded from WASM builds. Use `rouchdb-adapter-indexeddb` for browser persistence and `rouchdb-adapter-http` to talk to a remote CouchDB server from the browser.
 
 ## CLI Tool
 

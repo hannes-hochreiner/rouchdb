@@ -34,7 +34,8 @@
 - [Revision Trees](./architecture/revision-trees.md)
 - [Collation](./architecture/collation.md)
 - [Replication Protocol](./architecture/replication-protocol.md)
-- [Storage Layer](./architecture/storage-layer.md)
+- [Storage Layer (redb)](./architecture/storage-layer.md)
+- [Storage Layer (IndexedDB)](./architecture/indexeddb-storage.md)
 
 # Contributing
 

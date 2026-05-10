@@ -24,6 +24,12 @@ CouchDB/PouchDB semantics exactly.
 crate does not impose any schema; users may layer typed Rust structs on top via
 Serde when desired.
 
+**WASM compatibility.** The `Adapter` trait and the `Plugin` trait use
+`MaybeSend`/`MaybeSync` bounds (defined in `rouchdb-core`) that resolve to
+`Send + Sync` on native targets and are unconstrained on `wasm32`. This lets
+the same trait implementations compile for both native and browser targets
+without code duplication.
+
 ## Crate Dependency Graph
 
 ```
@@ -42,6 +48,9 @@ Serde when desired.
           |  adapter- |      |        |          |  |           |
           |   http    |      |        |          |  |           |
           +-----------+      |        |          |  |           |
+          | adapter-  |      |        |          |  |           |
+          | indexeddb |      |        |          |  |           |
+          +-----------+      |        |          |  |           |
                 \            |       /          /  /           /
                  \           |      /          /  /           /
                   +----------+-----+----------+--+-----------+
@@ -50,8 +59,13 @@ Serde when desired.
 ```
 
 All arrows point downward. Every crate ultimately depends on `rouchdb-core`.
-The `rouchdb` umbrella crate depends on all other eight crates and re-exports
+The `rouchdb` umbrella crate depends on all other nine crates and re-exports
 their public APIs.
+
+> **WASM note:** `rouchdb-adapter-indexeddb` is gated with
+> `#[cfg(target_arch = "wasm32")]` — it only compiles for browser targets.
+> The `rouchdb-adapter-redb` crate is gated with
+> `#[cfg(not(target_arch = "wasm32"))]` — it is excluded from WASM builds.
 
 ## The Crates
 
@@ -105,7 +119,22 @@ CouchDB REST endpoint.
 Dependencies: `rouchdb-core`, `reqwest` (with `json` and `cookies` features),
 `percent-encoding`, `serde`, `serde_json`.
 
-### 5. `rouchdb-changes`
+### 5. `rouchdb-adapter-indexeddb` _(WASM only)_
+
+Browser-local storage backed by the [IndexedDB](https://developer.mozilla.org/en-US/docs/Web/API/IndexedDB_API)
+API. Compiled only for `wasm32` targets. Uses six object stores — `docs`,
+`revs`, `changes`, `local_docs`, `attachments`, `meta` — mirroring the redb
+schema but expressed as IndexedDB object stores with key paths and indexes.
+
+Serialization: all structured types are round-tripped through
+`serde-wasm-bindgen` and `serde_json`. The adapter uses a `Cell<u64>` for
+the update sequence counter (safe because the browser JS runtime is
+single-threaded).
+
+Dependencies: `rouchdb-core`, `idb`, `serde-wasm-bindgen`, `wasm-bindgen`,
+`serde`, `serde_json`, `uuid`, `md-5`.
+
+### 6. `rouchdb-changes`
 
 Implements the live/continuous changes feed. Wraps an `Adapter`'s one-shot
 `changes()` call in a Tokio stream that polls for new changes, emitting
@@ -113,7 +142,7 @@ Implements the live/continuous changes feed. Wraps an `Adapter`'s one-shot
 
 Dependencies: `rouchdb-core`, `tokio`, `tokio-util`, `serde_json`.
 
-### 6. `rouchdb-replication`
+### 7. `rouchdb-replication`
 
 Implements the CouchDB replication protocol: reading and writing checkpoints,
 computing revision diffs, fetching missing documents, and writing them to the
@@ -125,7 +154,7 @@ Dependencies: `rouchdb-core`, `rouchdb-query`, `tokio`, `tokio-util`, `serde`,
 See [Replication Protocol](replication-protocol.md) for a step-by-step
 walkthrough.
 
-### 7. `rouchdb-query`
+### 8. `rouchdb-query`
 
 Mango selectors (`$eq`, `$gt`, `$in`, `$regex`, etc.) and map/reduce view
 support. Evaluates selectors against `serde_json::Value` documents using
@@ -133,7 +162,7 @@ CouchDB collation order.
 
 Dependencies: `rouchdb-core`, `regex`, `serde`, `serde_json`.
 
-### 8. `rouchdb-views`
+### 9. `rouchdb-views`
 
 Design documents and the persistent view engine. Stores `DesignDocument`
 structs (with views, filters, validate_doc_update) and provides `ViewEngine`
@@ -141,14 +170,14 @@ for incrementally-updated Rust-native map/reduce indexes.
 
 Dependencies: `rouchdb-core`, `serde`, `serde_json`.
 
-### 9. `rouchdb` (umbrella)
+### 10. `rouchdb` (umbrella)
 
-The crate users add to their `Cargo.toml`. Re-exports types from all eight
+The crate users add to their `Cargo.toml`. Re-exports types from all nine
 inner crates so consumers do not need to depend on individual sub-crates.
 
 Dependencies: all of the above, plus `serde_json`, `uuid`, `async-trait`.
 
-### 10. `rouchdb-server`
+### 11. `rouchdb-server`
 
 A CouchDB-compatible HTTP server built on [Axum](https://github.com/tokio-rs/axum).
 Wraps an `Arc<Database>` and exposes REST endpoints that Fauxton, PouchDB, or
@@ -158,7 +187,7 @@ any CouchDB client can connect to. Serves the Fauxton web dashboard via
 Dependencies: `rouchdb`, `rouchdb-core`, `axum`, `tower-http`, `rust-embed`,
 `clap`, `serde`, `serde_json`, `tokio`, `uuid`.
 
-### 11. `rouchdb-cli`
+### 12. `rouchdb-cli`
 
 A command-line tool for inspecting and querying redb database files. Provides
 subcommands for `info`, `get`, `all-docs`, `find`, `changes`, `dump`,

@@ -5,11 +5,12 @@ RouchDB has a plugin system that lets you hook into the document lifecycle. Plug
 ## The Plugin Trait
 
 ```rust
-use rouchdb::{Plugin, Document, DocResult, Result};
+use rouchdb::{Plugin, Document, DocResult, Result, MaybeSend, MaybeSync};
 use async_trait::async_trait;
 
-#[async_trait]
-pub trait Plugin: Send + Sync {
+// On native targets: Plugin: Send + Sync
+// On wasm32 targets: Plugin has no thread-safety bounds (single-threaded runtime)
+pub trait Plugin: MaybeSend + MaybeSync {
     /// The plugin name (used for identification).
     fn name(&self) -> &str;
 
@@ -29,6 +30,8 @@ pub trait Plugin: Send + Sync {
     }
 }
 ```
+
+> **WASM note:** The `Plugin` trait uses `MaybeSend + MaybeSync` instead of `Send + Sync`. On native targets these resolve to `Send + Sync`; on `wasm32` they have no bounds. This allows the same plugin code to compile for both native and browser targets.
 
 ## Adding Plugins
 
@@ -50,11 +53,9 @@ Multiple plugins can be added. They execute in registration order.
 
 ```rust
 use rouchdb::{Plugin, Document, Result};
-use async_trait::async_trait;
 
 struct TimestampPlugin;
 
-#[async_trait]
 impl Plugin for TimestampPlugin {
     fn name(&self) -> &str { "timestamp" }
 
@@ -78,11 +79,9 @@ Return an error from `before_write` to reject the entire batch:
 
 ```rust
 use rouchdb::{Plugin, Document, Result, RouchError};
-use async_trait::async_trait;
 
 struct RequireTypeField;
 
-#[async_trait]
 impl Plugin for RequireTypeField {
     fn name(&self) -> &str { "require-type" }
 

@@ -37,6 +37,9 @@ Is it a change to the in-memory storage implementation?
 Is it a change to the persistent redb storage implementation?
   --> rouchdb-adapter-redb
 
+Is it a change to the browser/IndexedDB storage implementation?
+  --> rouchdb-adapter-indexeddb
+
 Is it a change to the HTTP server or Fauxton integration?
   --> rouchdb-server
 
@@ -80,6 +83,14 @@ The foundation crate. Everything else depends on it.
 
 **Key files:**
 - `src/lib.rs` -- `HttpAdapter` struct, CouchDB JSON response deserialization types, and the full `Adapter` trait implementation.
+
+### `rouchdb-adapter-indexeddb` _(WASM only)_
+
+**Responsibility:** Browser-local persistence via the IndexedDB API. Only compiled for `wasm32` targets (`#[cfg(target_arch = "wasm32")]`). Stores documents in six IndexedDB object stores: `docs`, `revs`, `changes`, `local_docs`, `attachments`, `meta`.
+
+**Key files:**
+- `src/schema.rs` -- `IndexedDbAdapter` struct with the full `Adapter` trait implementation and the IndexedDB schema initialization (`on_upgrade_needed`).
+- `src/util.rs` -- Helper utilities: `generate_rev_hash`, error conversion helpers, revision string parsing.
 
 ### `rouchdb-changes`
 
@@ -142,7 +153,7 @@ The foundation crate. Everything else depends on it.
 
 ## Adding an Adapter
 
-To add a new storage backend (e.g., SQLite, IndexedDB via wasm):
+To add a new storage backend (e.g., SQLite, a custom embedded store):
 
 1. Create a new crate: `crates/rouchdb-adapter-yourbackend/`
 2. Add it to the workspace `members` list in the root `Cargo.toml`
@@ -170,16 +181,19 @@ Look at `rouchdb-adapter-memory` as a reference implementation -- it is the simp
 ```
 rouchdb (umbrella)
   |-- rouchdb-core
-  |-- rouchdb-adapter-memory   --> rouchdb-core
-  |-- rouchdb-adapter-redb     --> rouchdb-core
-  |-- rouchdb-adapter-http     --> rouchdb-core
-  |-- rouchdb-changes          --> rouchdb-core
-  |-- rouchdb-query            --> rouchdb-core
-  |-- rouchdb-views            --> rouchdb-core
-  |-- rouchdb-replication      --> rouchdb-core, rouchdb-query
+  |-- rouchdb-adapter-memory              --> rouchdb-core
+  |-- rouchdb-adapter-redb (native only)  --> rouchdb-core
+  |-- rouchdb-adapter-http                --> rouchdb-core
+  |-- rouchdb-adapter-indexeddb (wasm32)  --> rouchdb-core
+  |-- rouchdb-changes                     --> rouchdb-core
+  |-- rouchdb-query                       --> rouchdb-core
+  |-- rouchdb-views                       --> rouchdb-core
+  |-- rouchdb-replication                 --> rouchdb-core, rouchdb-query
 
 rouchdb-server --> rouchdb, rouchdb-core  (HTTP server + Fauxton)
 rouchdb-cli    --> rouchdb                (CLI tool)
 ```
 
 All library crates depend on `rouchdb-core`. The umbrella `rouchdb` crate depends on all of them and re-exports their public APIs. The `rouchdb-server` and `rouchdb-cli` crates are standalone binaries that depend on the umbrella crate.
+
+> **Platform gating:** `rouchdb-adapter-redb` is compiled only for non-WASM targets. `rouchdb-adapter-indexeddb` is compiled only for `wasm32`. All other crates compile for both native and WASM targets.
