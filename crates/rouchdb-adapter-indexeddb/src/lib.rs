@@ -295,4 +295,252 @@ mod tests {
         let result = db.get("doc1", GetOptions::default()).await;
         assert!(matches!(result.unwrap_err(), RouchError::NotFound(_)));
     }
+
+    // -------------------------------------------------------------------------
+    // Task 13 — all_docs()
+    // -------------------------------------------------------------------------
+
+    #[wasm_bindgen_test]
+    async fn all_docs_sorted_keys() {
+        let db = IndexedDbAdapter::open("t13-sorted").await.unwrap();
+        db.destroy().await.unwrap();
+        let db = IndexedDbAdapter::open("t13-sorted").await.unwrap();
+
+        for name in ["charlie", "alice", "bob"] {
+            let doc = Document {
+                id: name.into(),
+                rev: None,
+                deleted: false,
+                data: serde_json::json!({"name": name}),
+                attachments: HashMap::new(),
+            };
+            db.bulk_docs(vec![doc], BulkDocsOptions::new()).await.unwrap();
+        }
+
+        let result = db.all_docs(AllDocsOptions::new()).await.unwrap();
+        assert_eq!(result.total_rows, 3);
+        assert_eq!(result.rows[0].id, "alice");
+        assert_eq!(result.rows[1].id, "bob");
+        assert_eq!(result.rows[2].id, "charlie");
+    }
+
+    #[wasm_bindgen_test]
+    async fn all_docs_include_docs() {
+        let db = IndexedDbAdapter::open("t13-incdocs").await.unwrap();
+        db.destroy().await.unwrap();
+        let db = IndexedDbAdapter::open("t13-incdocs").await.unwrap();
+
+        let doc = Document {
+            id: "doc1".into(),
+            rev: None,
+            deleted: false,
+            data: serde_json::json!({"name": "Alice"}),
+            attachments: HashMap::new(),
+        };
+        db.bulk_docs(vec![doc], BulkDocsOptions::new()).await.unwrap();
+
+        let mut opts = AllDocsOptions::new();
+        opts.include_docs = true;
+        let result = db.all_docs(opts).await.unwrap();
+        assert!(result.rows[0].doc.is_some());
+        let fetched = result.rows[0].doc.as_ref().unwrap();
+        assert_eq!(fetched["name"], "Alice");
+    }
+
+    #[wasm_bindgen_test]
+    async fn all_docs_excludes_deleted() {
+        let db = IndexedDbAdapter::open("t13-excldeleted").await.unwrap();
+        db.destroy().await.unwrap();
+        let db = IndexedDbAdapter::open("t13-excldeleted").await.unwrap();
+
+        let doc = Document {
+            id: "doc1".into(),
+            rev: None,
+            deleted: false,
+            data: serde_json::json!({"name": "Alice"}),
+            attachments: HashMap::new(),
+        };
+        let results = db.bulk_docs(vec![doc], BulkDocsOptions::new()).await.unwrap();
+        let rev1: Revision = results[0].rev.clone().unwrap().parse().unwrap();
+
+        let del = Document {
+            id: "doc1".into(),
+            rev: Some(rev1),
+            deleted: true,
+            data: serde_json::json!({}),
+            attachments: HashMap::new(),
+        };
+        db.bulk_docs(vec![del], BulkDocsOptions::new()).await.unwrap();
+
+        let result = db.all_docs(AllDocsOptions::new()).await.unwrap();
+        assert_eq!(result.total_rows, 0);
+    }
+
+    // -------------------------------------------------------------------------
+    // Task 14 — changes()
+    // -------------------------------------------------------------------------
+
+    #[wasm_bindgen_test]
+    async fn changes_all() {
+        let db = IndexedDbAdapter::open("t14-all").await.unwrap();
+        db.destroy().await.unwrap();
+        let db = IndexedDbAdapter::open("t14-all").await.unwrap();
+
+        for i in 0..3u32 {
+            let doc = Document {
+                id: format!("doc{}", i),
+                rev: None,
+                deleted: false,
+                data: serde_json::json!({"i": i}),
+                attachments: HashMap::new(),
+            };
+            db.bulk_docs(vec![doc], BulkDocsOptions::new()).await.unwrap();
+        }
+
+        let changes = db.changes(ChangesOptions::default()).await.unwrap();
+        assert_eq!(changes.results.len(), 3);
+    }
+
+    #[wasm_bindgen_test]
+    async fn changes_since() {
+        let db = IndexedDbAdapter::open("t14-since").await.unwrap();
+        db.destroy().await.unwrap();
+        let db = IndexedDbAdapter::open("t14-since").await.unwrap();
+
+        for i in 0..3u32 {
+            let doc = Document {
+                id: format!("doc{}", i),
+                rev: None,
+                deleted: false,
+                data: serde_json::json!({"i": i}),
+                attachments: HashMap::new(),
+            };
+            db.bulk_docs(vec![doc], BulkDocsOptions::new()).await.unwrap();
+        }
+
+        let changes = db
+            .changes(ChangesOptions {
+                since: Seq::Num(2),
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+        assert_eq!(changes.results.len(), 1);
+    }
+
+    #[wasm_bindgen_test]
+    async fn changes_include_docs() {
+        let db = IndexedDbAdapter::open("t14-incdocs").await.unwrap();
+        db.destroy().await.unwrap();
+        let db = IndexedDbAdapter::open("t14-incdocs").await.unwrap();
+
+        let doc = Document {
+            id: "doc1".into(),
+            rev: None,
+            deleted: false,
+            data: serde_json::json!({"x": 1}),
+            attachments: HashMap::new(),
+        };
+        db.bulk_docs(vec![doc], BulkDocsOptions::new()).await.unwrap();
+
+        let changes = db
+            .changes(ChangesOptions {
+                include_docs: true,
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+        assert!(changes.results[0].doc.is_some());
+        let fetched = changes.results[0].doc.as_ref().unwrap();
+        assert_eq!(fetched["x"], 1);
+    }
+
+    // -------------------------------------------------------------------------
+    // Task 15 — revs_diff() and bulk_get()
+    // -------------------------------------------------------------------------
+
+    #[wasm_bindgen_test]
+    async fn revs_diff_missing_and_present() {
+        let db = IndexedDbAdapter::open("t15-revsdiff").await.unwrap();
+        db.destroy().await.unwrap();
+        let db = IndexedDbAdapter::open("t15-revsdiff").await.unwrap();
+
+        let doc = Document {
+            id: "doc1".into(),
+            rev: None,
+            deleted: false,
+            data: serde_json::json!({"v": 1}),
+            attachments: HashMap::new(),
+        };
+        let results = db.bulk_docs(vec![doc], BulkDocsOptions::new()).await.unwrap();
+        let existing_rev = results[0].rev.clone().unwrap();
+
+        let mut revs = HashMap::new();
+        revs.insert(
+            "doc1".into(),
+            vec![existing_rev.clone(), "2-doesnotexist".into()],
+        );
+
+        let diff = db.revs_diff(revs).await.unwrap();
+        let doc1_diff = diff.results.get("doc1").unwrap();
+        assert!(!doc1_diff.missing.contains(&existing_rev));
+        assert!(doc1_diff.missing.contains(&"2-doesnotexist".to_string()));
+    }
+
+    #[wasm_bindgen_test]
+    async fn revs_diff_completely_missing_doc() {
+        let db = IndexedDbAdapter::open("t15-revsdiff-ghost").await.unwrap();
+        db.destroy().await.unwrap();
+        let db = IndexedDbAdapter::open("t15-revsdiff-ghost").await.unwrap();
+
+        let mut revs = HashMap::new();
+        revs.insert("ghost".into(), vec!["1-abc".into()]);
+
+        let diff = db.revs_diff(revs).await.unwrap();
+        let ghost_diff = diff.results.get("ghost").unwrap();
+        assert!(ghost_diff.missing.contains(&"1-abc".to_string()));
+    }
+
+    #[wasm_bindgen_test]
+    async fn bulk_get_existing() {
+        let db = IndexedDbAdapter::open("t15-bulkget").await.unwrap();
+        db.destroy().await.unwrap();
+        let db = IndexedDbAdapter::open("t15-bulkget").await.unwrap();
+
+        let doc = Document {
+            id: "doc1".into(),
+            rev: None,
+            deleted: false,
+            data: serde_json::json!({"name": "test"}),
+            attachments: HashMap::new(),
+        };
+        db.bulk_docs(vec![doc], BulkDocsOptions::new()).await.unwrap();
+
+        let result = db
+            .bulk_get(vec![BulkGetItem {
+                id: "doc1".into(),
+                rev: None,
+            }])
+            .await
+            .unwrap();
+
+        assert!(result.results[0].docs[0].ok.is_some());
+    }
+
+    #[wasm_bindgen_test]
+    async fn bulk_get_missing() {
+        let db = IndexedDbAdapter::open("t15-bulkget-miss").await.unwrap();
+        db.destroy().await.unwrap();
+        let db = IndexedDbAdapter::open("t15-bulkget-miss").await.unwrap();
+
+        let result = db
+            .bulk_get(vec![BulkGetItem {
+                id: "missing".into(),
+                rev: None,
+            }])
+            .await
+            .unwrap();
+
+        assert!(result.results[0].docs[0].error.is_some());
+    }
 }
