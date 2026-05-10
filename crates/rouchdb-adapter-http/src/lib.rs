@@ -3,6 +3,7 @@
 /// Communicates with a remote CouchDB-compatible server via HTTP,
 /// implementing the Adapter trait by mapping each method to the
 /// corresponding CouchDB REST API endpoint.
+#[cfg(not(target_arch = "wasm32"))]
 pub mod auth;
 
 use std::collections::HashMap;
@@ -169,6 +170,7 @@ impl HttpAdapter {
     ///
     /// The `AuthClient` must have been logged in already; its internal
     /// reqwest client (with cookie store) will be shared with this adapter.
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn with_auth_client(url: &str, auth: &auth::AuthClient) -> Self {
         Self::with_client(url, auth.client().clone())
     }
@@ -226,7 +228,8 @@ fn parse_seq(value: &serde_json::Value) -> Seq {
     }
 }
 
-#[async_trait]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 impl Adapter for HttpAdapter {
     async fn info(&self) -> Result<DbInfo> {
         let resp = self

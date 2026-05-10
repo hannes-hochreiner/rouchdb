@@ -1,3 +1,4 @@
+#![cfg(not(target_arch = "wasm32"))]
 /// CouchDB authentication helpers.
 ///
 /// Supports cookie-based authentication (`_session` endpoint),
