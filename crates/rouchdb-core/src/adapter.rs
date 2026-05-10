@@ -15,8 +15,9 @@ use crate::error::Result;
 /// - Tracking sequence numbers for the changes feed
 /// - Managing local (non-replicated) documents for checkpoints
 /// - Attachment storage and retrieval
-#[async_trait]
-pub trait Adapter: Send + Sync {
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+pub trait Adapter: crate::MaybeSend + crate::MaybeSync {
     /// Get database information: name, document count, update sequence.
     async fn info(&self) -> Result<DbInfo>;
 
