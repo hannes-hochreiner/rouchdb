@@ -13,6 +13,9 @@ mod protocol;
 
 pub use checkpoint::Checkpointer;
 pub use protocol::{
-    ReplicationEvent, ReplicationFilter, ReplicationHandle, ReplicationOptions, ReplicationResult,
-    replicate, replicate_live, replicate_with_events,
+    ReplicationEvent, ReplicationFilter, ReplicationOptions, ReplicationResult,
+    replicate, replicate_with_events,
 };
+
+#[cfg(not(target_arch = "wasm32"))]
+pub use protocol::{ReplicationHandle, replicate_live};

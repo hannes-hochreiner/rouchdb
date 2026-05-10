@@ -6,6 +6,7 @@ use rouchdb_core::adapter::Adapter;
 use rouchdb_core::document::*;
 use rouchdb_core::error::Result;
 use tokio::sync::mpsc;
+#[cfg(not(target_arch = "wasm32"))]
 use tokio_util::sync::CancellationToken;
 
 use crate::checkpoint::Checkpointer;
@@ -431,6 +432,7 @@ pub async fn replicate_with_events(
 /// `ReplicationHandle` is cancelled/dropped.
 ///
 /// Events are emitted through the returned channel receiver.
+#[cfg(not(target_arch = "wasm32"))]
 pub fn replicate_live(
     source: Arc<dyn Adapter>,
     target: Arc<dyn Adapter>,
@@ -507,10 +509,12 @@ pub fn replicate_live(
 }
 
 /// Handle for a live replication task. Dropping this cancels the replication.
+#[cfg(not(target_arch = "wasm32"))]
 pub struct ReplicationHandle {
     cancel: CancellationToken,
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 impl ReplicationHandle {
     /// Cancel the live replication.
     pub fn cancel(&self) {
@@ -518,6 +522,7 @@ impl ReplicationHandle {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 impl Drop for ReplicationHandle {
     fn drop(&mut self) {
         self.cancel.cancel();
