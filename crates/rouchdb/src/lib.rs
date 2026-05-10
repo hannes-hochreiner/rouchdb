@@ -31,6 +31,7 @@
 //! ```
 
 use std::collections::HashMap;
+#[cfg(not(target_arch = "wasm32"))]
 use std::path::Path;
 use std::sync::Arc;
 
@@ -38,6 +39,7 @@ use tokio::sync::RwLock;
 
 // Re-export core types
 pub use rouchdb_core::adapter::Adapter;
+pub use rouchdb_core::{MaybeSend, MaybeSync};
 pub use rouchdb_core::document::*;
 pub use rouchdb_core::error::{Result, RouchError};
 pub use rouchdb_core::merge::{is_deleted, winning_rev};
@@ -46,6 +48,7 @@ pub use rouchdb_core::merge::{is_deleted, winning_rev};
 pub use rouchdb_adapter_http::HttpAdapter;
 pub use rouchdb_adapter_http::auth::{AuthClient, Session, UserContext};
 pub use rouchdb_adapter_memory::MemoryAdapter;
+#[cfg(not(target_arch = "wasm32"))]
 pub use rouchdb_adapter_redb::RedbAdapter;
 
 // Re-export subsystems
@@ -61,15 +64,18 @@ pub use rouchdb_query::{
 pub use rouchdb_views::{DesignDocument, PersistentViewIndex, ViewDef, ViewEngine};
 
 pub use rouchdb_replication::{
-    ReplicationEvent, ReplicationFilter, ReplicationHandle, ReplicationOptions, ReplicationResult,
-    replicate, replicate_live, replicate_with_events,
+    ReplicationEvent, ReplicationFilter, ReplicationOptions, ReplicationResult,
+    replicate, replicate_with_events,
 };
+#[cfg(not(target_arch = "wasm32"))]
+pub use rouchdb_replication::{ReplicationHandle, replicate_live};
 
 /// Plugin trait for extending Database behavior.
 ///
 /// Plugins receive lifecycle hooks during database operations.
-#[async_trait::async_trait]
-pub trait Plugin: Send + Sync {
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+pub trait Plugin: rouchdb_core::MaybeSend + rouchdb_core::MaybeSync {
     /// The plugin name.
     fn name(&self) -> &str;
     /// Called before documents are written.
@@ -106,6 +112,7 @@ impl Database {
     }
 
     /// Open or create a persistent database backed by redb.
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn open(path: impl AsRef<Path>, name: &str) -> Result<Self> {
         let adapter = RedbAdapter::open(path, name)?;
         Ok(Self {
@@ -769,6 +776,7 @@ impl Database {
     /// Returns a receiver for `ReplicationEvent` and a `ReplicationHandle`
     /// that can be used to cancel the replication. Dropping the handle also
     /// cancels the replication.
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn replicate_to_live(
         &self,
         target: &Database,
@@ -1025,6 +1033,7 @@ mod tests {
         assert_eq!(info.db_name, "test");
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     #[tokio::test]
     async fn database_open_redb() {
         let dir = tempfile::tempdir().unwrap();
@@ -1273,6 +1282,7 @@ mod tests {
         );
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     #[tokio::test]
     async fn database_live_replication() {
         let local = Database::memory("local");
