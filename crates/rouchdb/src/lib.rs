@@ -1310,15 +1310,14 @@ mod tests {
         loop {
             tokio::select! {
                 event = rx.recv() => {
+                    #[allow(clippy::collapsible_match)]
                     match event {
-                        Some(ReplicationEvent::Complete(r)) => {
-                            if r.docs_written > 0 {
-                                got_complete = true;
-                                break;
-                            }
+                        Some(ReplicationEvent::Complete(r)) if r.docs_written > 0 => {
+                            got_complete = true;
+                            break;
                         }
                         Some(ReplicationEvent::Paused) => {
-                            // No changes, check if doc was replicated
+                            // No changes, check if doc was replicated (.await can't go in a guard)
                             if remote.get("doc1").await.is_ok() {
                                 got_complete = true;
                                 break;

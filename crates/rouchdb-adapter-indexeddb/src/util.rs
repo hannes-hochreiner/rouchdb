@@ -7,15 +7,15 @@ pub fn generate_rev_hash(
     doc_data: &serde_json::Value,
     deleted: bool,
     prev_rev: Option<&str>,
-) -> String {
+) -> Result<String> {
     let mut hasher = Md5::new();
     if let Some(prev) = prev_rev {
         hasher.update(prev.as_bytes());
     }
     hasher.update(if deleted { b"1" } else { b"0" });
-    let serialized = serde_json::to_string(doc_data).unwrap_or_default();
+    let serialized = serde_json::to_string(doc_data).map_err(serde_err)?;
     hasher.update(serialized.as_bytes());
-    format!("{:x}", hasher.finalize())
+    Ok(format!("{:x}", hasher.finalize()))
 }
 
 pub fn rev_string(pos: u64, hash: &str) -> String {

@@ -1174,27 +1174,25 @@ fn process_doc_new_edits(
         let tree = serialized_to_rev_tree(&record.rev_tree);
         let winner = winning_rev(&tree);
         match (&doc.rev, &winner) {
-            (Some(provided_rev), Some(current_winner)) => {
-                if provided_rev.to_string() != current_winner.to_string() {
-                    return Ok(DocResult {
-                        ok: false,
-                        id: doc_id,
-                        rev: None,
-                        error: Some("conflict".into()),
-                        reason: Some("Document update conflict".into()),
-                    });
-                }
+            (Some(provided_rev), Some(current_winner))
+                if provided_rev.to_string() != current_winner.to_string() =>
+            {
+                return Ok(DocResult {
+                    ok: false,
+                    id: doc_id,
+                    rev: None,
+                    error: Some("conflict".into()),
+                    reason: Some("Document update conflict".into()),
+                });
             }
-            (None, Some(_)) => {
-                if !is_deleted(&tree) {
-                    return Ok(DocResult {
-                        ok: false,
-                        id: doc_id,
-                        rev: None,
-                        error: Some("conflict".into()),
-                        reason: Some("Document update conflict".into()),
-                    });
-                }
+            (None, Some(_)) if !is_deleted(&tree) => {
+                return Ok(DocResult {
+                    ok: false,
+                    id: doc_id,
+                    rev: None,
+                    error: Some("conflict".into()),
+                    reason: Some("Document update conflict".into()),
+                });
             }
             _ => {}
         }

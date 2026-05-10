@@ -251,6 +251,7 @@ async fn live_replication_picks_up_new_docs() {
     loop {
         tokio::select! {
             event = rx.recv() => {
+                #[allow(clippy::collapsible_match)]
                 match event {
                     Some(ReplicationEvent::Complete(r)) if r.docs_written > 0 => {
                         initial_done = true;

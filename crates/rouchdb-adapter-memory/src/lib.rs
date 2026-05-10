@@ -905,30 +905,28 @@ fn process_doc_new_edits(inner: &mut Inner, doc: Document) -> DocResult {
         let winner = winning_rev(&stored.rev_tree);
 
         match (&doc.rev, &winner) {
-            (Some(provided_rev), Some(current_winner)) => {
-                if provided_rev.to_string() != current_winner.to_string() {
-                    return DocResult {
-                        ok: false,
-                        id: doc_id,
-                        rev: None,
-                        error: Some("conflict".into()),
-                        reason: Some("Document update conflict".into()),
-                    };
-                }
+            (Some(provided_rev), Some(current_winner))
+                if provided_rev.to_string() != current_winner.to_string() =>
+            {
+                return DocResult {
+                    ok: false,
+                    id: doc_id,
+                    rev: None,
+                    error: Some("conflict".into()),
+                    reason: Some("Document update conflict".into()),
+                };
             }
-            (None, Some(_)) => {
-                // Trying to create a doc that already exists (and isn't deleted)
-                if !is_deleted(&stored.rev_tree) {
-                    return DocResult {
-                        ok: false,
-                        id: doc_id,
-                        rev: None,
-                        error: Some("conflict".into()),
-                        reason: Some("Document update conflict".into()),
-                    };
-                }
-                // If winner is deleted, allow creating a new doc at the same ID
+            // Trying to create a doc that already exists (and isn't deleted)
+            (None, Some(_)) if !is_deleted(&stored.rev_tree) => {
+                return DocResult {
+                    ok: false,
+                    id: doc_id,
+                    rev: None,
+                    error: Some("conflict".into()),
+                    reason: Some("Document update conflict".into()),
+                };
             }
+            // If winner is deleted, allow creating a new doc at the same ID
             _ => {}
         }
     } else if doc.rev.is_some() {

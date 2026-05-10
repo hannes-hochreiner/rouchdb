@@ -994,6 +994,7 @@ async fn live_replicate_to_couchdb() {
     loop {
         tokio::select! {
             event = rx.recv() => {
+                #[allow(clippy::collapsible_match)]
                 match event {
                     Some(ReplicationEvent::Complete(r)) if r.docs_written > 0 => break,
                     Some(ReplicationEvent::Paused) => {
@@ -1070,6 +1071,7 @@ async fn live_replicate_picks_up_new_docs() {
     loop {
         tokio::select! {
             event = rx.recv() => {
+                #[allow(clippy::collapsible_match)]
                 match event {
                     Some(ReplicationEvent::Complete(r)) if r.docs_written > 0 => {
                         replicated = true;

@@ -10,7 +10,7 @@ use rouchdb_core::document::*;
 use rouchdb_core::error::{Result, RouchError};
 use rouchdb_core::merge::{collect_conflicts, is_deleted, merge_tree, winning_rev};
 use rouchdb_core::rev_tree::{
-    NodeOpts, RevPath, RevStatus, RevTree, build_path_from_revs, collect_leaves,
+    NodeOpts, RevNode, RevPath, RevStatus, RevTree, build_path_from_revs, collect_leaves,
     find_rev_ancestry, rev_exists,
 };
 use serde::{Deserialize, Serialize};
@@ -20,6 +20,36 @@ use wasm_bindgen::JsValue;
 use crate::util::*;
 
 const DEFAULT_REV_LIMIT: u64 = 1000;
+
+/// For `latest=true`: find the deepest leaf reachable from the node at
+/// `target_pos/target_hash` by descending first children. Returns None if
+/// the target revision is not in the tree.
+fn find_branch_leaf(tree: &RevTree, target_pos: u64, target_hash: &str) -> Option<String> {
+    fn deepest(node: &RevNode, pos: u64) -> String {
+        if node.children.is_empty() {
+            format!("{}-{}", pos, node.hash)
+        } else {
+            deepest(&node.children[0], pos + 1)
+        }
+    }
+    fn search(node: &RevNode, pos: u64, tp: u64, th: &str) -> Option<String> {
+        if pos == tp && node.hash == th {
+            return Some(deepest(node, pos));
+        }
+        for child in &node.children {
+            if let Some(r) = search(child, pos + 1, tp, th) {
+                return Some(r);
+            }
+        }
+        None
+    }
+    for path in tree {
+        if let Some(r) = search(&path.tree, path.pos, target_pos, target_hash) {
+            return Some(r);
+        }
+    }
+    None
+}
 
 // ---------------------------------------------------------------------------
 // Stored types
@@ -94,7 +124,7 @@ impl IndexedDbAdapter {
             p.key_path(Some(KeyPath::new_single("seq")));
             if let Ok(store) = db.create_object_store("changes", p) {
                 let mut idx = IndexParams::new();
-                idx.unique(true);
+                idx.unique(false);
                 store.create_index("by_doc_id", KeyPath::new_single("doc_id"), Some(idx)).ok();
             }
 
@@ -115,7 +145,7 @@ impl IndexedDbAdapter {
         });
 
         let db = open_req.await.map_err(idb_err)?;
-        let update_seq = load_update_seq(&db).await.unwrap_or(0);
+        let update_seq = load_update_seq(&db).await?;
 
         Ok(Self {
             db,
@@ -394,8 +424,9 @@ impl Adapter for IndexedDbAdapter {
         if opts.latest && opts.rev.is_some() {
             let leaves = collect_leaves(&tree);
             if !leaves.iter().any(|l| l.rev_string() == target_rev) {
-                if let Some(leaf) = leaves.first() {
-                    target_rev = leaf.rev_string();
+                let (req_pos, req_hash) = parse_rev(&target_rev)?;
+                if let Some(leaf_rev) = find_branch_leaf(&tree, req_pos, &req_hash) {
+                    target_rev = leaf_rev;
                 }
             }
         }
@@ -454,6 +485,13 @@ impl Adapter for IndexedDbAdapter {
 
         // Build a lookup map for StoredDoc
         let doc_map: HashMap<String, StoredDoc> = all_stored.into_iter().map(|sd| (sd.id.clone(), sd)).collect();
+
+        // total_rows = count of all non-deleted docs in the DB (not affected by key filters)
+        let total_rows: u64 = doc_map
+            .values()
+            .filter_map(|sd| serde_json::from_str::<RevTree>(&sd.rev_tree).ok())
+            .filter(|tree| !is_deleted(tree))
+            .count() as u64;
 
         let target_keys: Vec<String> = if let Some(ref keys) = opts.keys {
             keys.clone()
@@ -569,7 +607,6 @@ impl Adapter for IndexedDbAdapter {
             });
         }
 
-        let total_rows = rows.len() as u64;
         let skip = opts.skip as usize;
         if skip > 0 {
             rows = rows.into_iter().skip(skip).collect();
@@ -828,7 +865,8 @@ impl Adapter for IndexedDbAdapter {
             })).map_err(serde_err)?;
             let tx = self.db.transaction(&["attachments"], TransactionMode::ReadWrite).map_err(idb_err)?;
             let store = tx.object_store("attachments").map_err(idb_err)?;
-            store.put(&att_js, None).map_err(idb_err)?.await.map_err(idb_err)?;
+            let r = store.put(&att_js, None).map_err(idb_err)?;
+            r.await.map_err(idb_err)?;
             tx.commit().map_err(idb_err)?.await.map_err(idb_err)?;
         }
 
@@ -904,7 +942,6 @@ impl Adapter for IndexedDbAdapter {
     }
 
     async fn remove_attachment(&self, doc_id: &str, att_id: &str, rev: &str) -> Result<DocResult> {
-        let _ = att_id;
         let (tree, _) = load_doc(&self.db, doc_id)
             .await?
             .ok_or_else(|| RouchError::NotFound(doc_id.to_string()))?;
@@ -912,9 +949,19 @@ impl Adapter for IndexedDbAdapter {
         if winner.to_string() != rev {
             return Err(RouchError::Conflict);
         }
-        let (doc_data, _) = load_rev_data(&self.db, doc_id, rev)
+        let (mut doc_data, _) = load_rev_data(&self.db, doc_id, rev)
             .await?
             .unwrap_or((serde_json::Value::Object(serde_json::Map::new()), false));
+
+        // Remove only the named attachment from _attachments
+        if let Some(atts) = doc_data.get_mut("_attachments") {
+            if let Some(map) = atts.as_object_mut() {
+                map.remove(att_id);
+                if map.is_empty() {
+                    doc_data.as_object_mut().map(|m| m.remove("_attachments"));
+                }
+            }
+        }
 
         let doc = Document {
             id: doc_id.to_string(),
@@ -1032,7 +1079,10 @@ impl IndexedDbAdapter {
 
         let new_pos = doc.rev.as_ref().map(|r| r.pos + 1).unwrap_or(1);
         let prev_rev_str = doc.rev.as_ref().map(|r| r.to_string());
-        let new_hash = generate_rev_hash(&doc.data, doc.deleted, prev_rev_str.as_deref());
+        let new_hash = match generate_rev_hash(&doc.data, doc.deleted, prev_rev_str.as_deref()) {
+            Ok(h) => h,
+            Err(e) => return db_err(&doc_id, e),
+        };
         let new_rev_str = rev_string(new_pos, &new_hash);
 
         let mut rev_hashes = vec![new_hash.clone()];
@@ -1052,11 +1102,11 @@ impl IndexedDbAdapter {
         let (merged_tree, _) = merge_tree(&existing_tree, &new_path, DEFAULT_REV_LIMIT);
 
         let new_seq = self.update_seq.get() + 1;
-        self.update_seq.set(new_seq);
 
         if let Err(e) = self.write_doc(&doc_id, &merged_tree, new_seq, existing_seq, &new_rev_str, &doc).await {
             return db_err(&doc_id, e);
         }
+        self.update_seq.set(new_seq);
 
         DocResult { ok: true, id: doc_id, rev: Some(new_rev_str), error: None, reason: None }
     }
@@ -1106,11 +1156,11 @@ impl IndexedDbAdapter {
         let (merged_tree, _) = merge_tree(&existing_tree, &new_path, DEFAULT_REV_LIMIT);
 
         let new_seq = self.update_seq.get() + 1;
-        self.update_seq.set(new_seq);
 
         if let Err(e) = self.write_doc(&doc_id, &merged_tree, new_seq, existing_seq, &rev_str, &doc).await {
             return db_err(&doc_id, e);
         }
+        self.update_seq.set(new_seq);
 
         DocResult { ok: true, id: doc_id, rev: Some(rev_str), error: None, reason: None }
     }
