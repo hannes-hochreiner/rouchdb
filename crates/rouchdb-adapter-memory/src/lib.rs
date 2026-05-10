@@ -116,7 +116,8 @@ fn compute_attachment_digest(data: &[u8]) -> String {
 // Adapter implementation
 // ---------------------------------------------------------------------------
 
-#[async_trait]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 impl Adapter for MemoryAdapter {
     async fn info(&self) -> Result<DbInfo> {
         let inner = self.inner.read().await;
