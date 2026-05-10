@@ -46,12 +46,17 @@
         toolchain
         bun
         # wasm-bindgen-cli_0_2_105
-        # wasm-pack
+        wasm-pack
         nushell
         libxml2
         # docker-compose
         trunk
+        openssl
+        pkg-config
       ];
+
+      OPENSSL_DEV = pkgs.openssl.dev;
+      PKG_CONFIG_PATH = "${pkgs.openssl.dev}/lib/pkgconfig";
     };
 
   };

@@ -7,7 +7,7 @@
 /// Multiple roots arise when revisions are stemmed (pruned) and later a
 /// previously-stemmed branch is re-introduced during replication.
 /// Status of a revision's stored data.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum RevStatus {
     /// Full document data is stored for this revision.
     Available,
@@ -16,7 +16,7 @@ pub enum RevStatus {
 }
 
 /// A single node in the revision tree.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct RevNode {
     /// The hash portion of the revision id.
     pub hash: String,
@@ -29,7 +29,7 @@ pub struct RevNode {
 }
 
 /// Per-node metadata flags.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct NodeOpts {
     pub deleted: bool,
 }
@@ -38,7 +38,7 @@ pub struct NodeOpts {
 ///
 /// `pos` is the generation number of the root node. For example, if the
 /// earliest stored revision is `3-abc`, then `pos = 3`.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct RevPath {
     pub pos: u64,
     pub tree: RevNode,
