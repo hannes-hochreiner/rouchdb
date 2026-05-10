@@ -374,6 +374,7 @@ mod tests {
 
         let result = db.all_docs(AllDocsOptions::new()).await.unwrap();
         assert_eq!(result.total_rows, 0);
+        assert!(result.rows.is_empty());
     }
 
     // -------------------------------------------------------------------------
@@ -399,6 +400,10 @@ mod tests {
 
         let changes = db.changes(ChangesOptions::default()).await.unwrap();
         assert_eq!(changes.results.len(), 3);
+        let ids: Vec<&str> = changes.results.iter().map(|c| c.id.as_str()).collect();
+        assert!(ids.contains(&"doc0"));
+        assert!(ids.contains(&"doc1"));
+        assert!(ids.contains(&"doc2"));
     }
 
     #[wasm_bindgen_test]
@@ -426,6 +431,7 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(changes.results.len(), 1);
+        assert_eq!(changes.results[0].id, "doc2");
     }
 
     #[wasm_bindgen_test]
@@ -524,7 +530,10 @@ mod tests {
             .await
             .unwrap();
 
-        assert!(result.results[0].docs[0].ok.is_some());
+        let ok_doc = result.results[0].docs[0].ok.as_ref().unwrap();
+        assert_eq!(result.results[0].id, "doc1");
+        assert_eq!(ok_doc["_id"], "doc1");
+        assert_eq!(ok_doc["name"], "test");
     }
 
     #[wasm_bindgen_test]
