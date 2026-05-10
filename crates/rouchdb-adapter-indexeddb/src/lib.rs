@@ -12,6 +12,7 @@ mod tests {
     use super::IndexedDbAdapter;
     use rouchdb_core::adapter::Adapter;
     use rouchdb_core::document::*;
+    use rouchdb_core::error::RouchError;
     use wasm_bindgen_test::wasm_bindgen_test;
 
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
@@ -46,7 +47,7 @@ mod tests {
         db.remove_local("repl-id").await.unwrap();
 
         let result = db.get_local("repl-id").await;
-        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), RouchError::NotFound(_)));
     }
 
     // -------------------------------------------------------------------------
@@ -101,6 +102,9 @@ mod tests {
         assert!(results2[0].ok);
         let rev2 = results2[0].rev.clone().unwrap();
         assert!(rev2.starts_with("2-"), "expected rev starting with '2-', got {}", rev2);
+
+        let fetched = db.get("doc1", GetOptions::default()).await.unwrap();
+        assert_eq!(fetched.data["name"], "Bob");
     }
 
     #[wasm_bindgen_test]
@@ -158,6 +162,9 @@ mod tests {
 
         let info = db.info().await.unwrap();
         assert_eq!(info.doc_count, 0);
+
+        let get_result = db.get("doc1", GetOptions::default()).await;
+        assert!(matches!(get_result.unwrap_err(), rouchdb_core::error::RouchError::NotFound(_)));
     }
 
     #[wasm_bindgen_test]
@@ -257,7 +264,7 @@ mod tests {
         let db = IndexedDbAdapter::open("t12-get-missing").await.unwrap();
 
         let result = db.get("does-not-exist", GetOptions::default()).await;
-        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), RouchError::NotFound(_)));
     }
 
     #[wasm_bindgen_test]
@@ -286,6 +293,6 @@ mod tests {
         db.bulk_docs(vec![del], BulkDocsOptions::new()).await.unwrap();
 
         let result = db.get("doc1", GetOptions::default()).await;
-        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), RouchError::NotFound(_)));
     }
 }
