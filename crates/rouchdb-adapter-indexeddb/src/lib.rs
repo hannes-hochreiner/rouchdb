@@ -552,4 +552,153 @@ mod tests {
 
         assert!(result.results[0].docs[0].error.is_some());
     }
+
+    // -------------------------------------------------------------------------
+    // Task 16 — put_attachment(), get_attachment(), remove_attachment()
+    // -------------------------------------------------------------------------
+
+    #[wasm_bindgen_test]
+    async fn put_and_get_attachment() {
+        let db = IndexedDbAdapter::open("t16-att-put-get").await.unwrap();
+        db.destroy().await.unwrap();
+        let db = IndexedDbAdapter::open("t16-att-put-get").await.unwrap();
+
+        let doc = Document {
+            id: "doc1".into(),
+            rev: None,
+            deleted: false,
+            data: serde_json::json!({"name": "with-attachment"}),
+            attachments: HashMap::new(),
+        };
+        let results = db.bulk_docs(vec![doc], BulkDocsOptions::new()).await.unwrap();
+        assert!(results[0].ok);
+        let rev = results[0].rev.clone().unwrap();
+
+        let put_result = db
+            .put_attachment("doc1", "file.txt", &rev, b"hello world".to_vec(), "text/plain")
+            .await
+            .unwrap();
+        assert!(put_result.ok);
+
+        let data = db
+            .get_attachment("doc1", "file.txt", GetAttachmentOptions { rev: None })
+            .await
+            .unwrap();
+        assert_eq!(data, b"hello world");
+    }
+
+    #[wasm_bindgen_test]
+    async fn remove_attachment() {
+        let db = IndexedDbAdapter::open("t16-att-remove").await.unwrap();
+        db.destroy().await.unwrap();
+        let db = IndexedDbAdapter::open("t16-att-remove").await.unwrap();
+
+        let doc = Document {
+            id: "doc1".into(),
+            rev: None,
+            deleted: false,
+            data: serde_json::json!({"name": "with-attachment"}),
+            attachments: HashMap::new(),
+        };
+        let results = db.bulk_docs(vec![doc], BulkDocsOptions::new()).await.unwrap();
+        assert!(results[0].ok);
+        let rev = results[0].rev.clone().unwrap();
+
+        let put_result = db
+            .put_attachment("doc1", "file.txt", &rev, b"hello world".to_vec(), "text/plain")
+            .await
+            .unwrap();
+        assert!(put_result.ok);
+        let new_rev = put_result.rev.unwrap();
+
+        let remove_result = db
+            .remove_attachment("doc1", "file.txt", &new_rev)
+            .await
+            .unwrap();
+        assert!(remove_result.ok);
+    }
+
+    // -------------------------------------------------------------------------
+    // Task 17 — compact() and destroy()
+    // -------------------------------------------------------------------------
+
+    #[wasm_bindgen_test]
+    async fn compact_removes_old_revisions() {
+        let db = IndexedDbAdapter::open("t17-compact").await.unwrap();
+        db.destroy().await.unwrap();
+        let db = IndexedDbAdapter::open("t17-compact").await.unwrap();
+
+        // Create the document (rev 1)
+        let doc = Document {
+            id: "doc1".into(),
+            rev: None,
+            deleted: false,
+            data: serde_json::json!({"v": 1}),
+            attachments: HashMap::new(),
+        };
+        let results = db.bulk_docs(vec![doc], BulkDocsOptions::new()).await.unwrap();
+        assert!(results[0].ok);
+        let rev1: Revision = results[0].rev.clone().unwrap().parse().unwrap();
+
+        // Update to rev 2
+        let doc2 = Document {
+            id: "doc1".into(),
+            rev: Some(rev1),
+            deleted: false,
+            data: serde_json::json!({"v": 2}),
+            attachments: HashMap::new(),
+        };
+        let results2 = db.bulk_docs(vec![doc2], BulkDocsOptions::new()).await.unwrap();
+        assert!(results2[0].ok);
+        let rev2: Revision = results2[0].rev.clone().unwrap().parse().unwrap();
+
+        // Update to rev 3
+        let doc3 = Document {
+            id: "doc1".into(),
+            rev: Some(rev2),
+            deleted: false,
+            data: serde_json::json!({"v": 3}),
+            attachments: HashMap::new(),
+        };
+        let results3 = db.bulk_docs(vec![doc3], BulkDocsOptions::new()).await.unwrap();
+        assert!(results3[0].ok);
+        assert!(results3[0].rev.as_deref().unwrap().starts_with("3-"));
+
+        // Compact and verify doc is still accessible
+        db.compact().await.unwrap();
+
+        let info = db.info().await.unwrap();
+        assert_eq!(info.doc_count, 1);
+
+        let fetched = db.get("doc1", GetOptions::default()).await.unwrap();
+        assert_eq!(fetched.data["v"], 3);
+    }
+
+    #[wasm_bindgen_test]
+    async fn destroy_clears_everything() {
+        let db = IndexedDbAdapter::open("t17-destroy").await.unwrap();
+        db.destroy().await.unwrap();
+        let db = IndexedDbAdapter::open("t17-destroy").await.unwrap();
+
+        let doc = Document {
+            id: "doc1".into(),
+            rev: None,
+            deleted: false,
+            data: serde_json::json!({"name": "Alice"}),
+            attachments: HashMap::new(),
+        };
+        db.bulk_docs(vec![doc], BulkDocsOptions::new()).await.unwrap();
+        db.put_local("repl-1", serde_json::json!({"checkpoint": 1}))
+            .await
+            .unwrap();
+
+        db.destroy().await.unwrap();
+
+        let info = db.info().await.unwrap();
+        assert_eq!(info.doc_count, 0);
+        assert_eq!(info.update_seq, Seq::Num(0));
+
+        let local_result = db.get_local("repl-1").await;
+        assert!(matches!(local_result.unwrap_err(), RouchError::NotFound(_)));
+    }
 }
