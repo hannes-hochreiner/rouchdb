@@ -13,7 +13,7 @@ RouchDB is the Rust equivalent of [PouchDB](https://pouchdb.com/) — it stores 
 
 - **Local-first** — works offline, syncs when connected
 - **CouchDB replication protocol** — bidirectional sync with CouchDB 2.x/3.x
-- **Multiple storage backends** — in-memory, persistent (redb), or remote (CouchDB HTTP)
+- **Multiple storage backends** — in-memory, persistent (redb), browser (IndexedDB/WASM), or remote (CouchDB HTTP)
 - **Conflict resolution** — deterministic winner selection, conflicts preserved for application-level resolution
 - **Mango queries** — `$eq`, `$gt`, `$regex`, `$elemMatch`, and more
 - **Map/reduce views** — with built-in `_sum`, `_count`, `_stats` reducers
@@ -155,9 +155,29 @@ handle.cancel();
 |---------|------------|----------|
 | **Memory** | `Database::memory("name")` | Testing, ephemeral data |
 | **Redb** | `Database::open("path.redb", "name")` | Persistent local storage |
+| **IndexedDB** | `IndexedDbAdapter::open("name").await?` | Browser / WASM (persistent) |
 | **HTTP** | `Database::http("http://...")` | Remote CouchDB |
 
 All backends implement the same `Adapter` trait — swap storage without changing application code.
+
+### Browser / WebAssembly
+
+The `rouchdb-adapter-indexeddb` crate targets `wasm32` and persists documents in the browser's IndexedDB. Add it to your WASM project:
+
+```toml
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+rouchdb-adapter-indexeddb = "0.3"
+rouchdb-core = "0.3"
+```
+
+```rust
+use rouchdb_adapter_indexeddb::IndexedDbAdapter;
+use rouchdb::Database;
+
+let adapter = IndexedDbAdapter::open("mydb").await?;
+let db = Database::from_adapter(adapter);
+// Use db exactly like any other backend — replication, queries, attachments, etc.
+```
 
 ## HTTP Server & Fauxton
 
@@ -231,7 +251,7 @@ Add `--pretty` (or `-p`) to any command for formatted JSON output.
 
 ## Crate Structure
 
-RouchDB is a workspace of 11 crates:
+RouchDB is a workspace of 12 crates:
 
 | Crate | Description |
 |-------|-------------|
@@ -239,6 +259,7 @@ RouchDB is a workspace of 11 crates:
 | `rouchdb-core` | Traits, types, revision tree, merge algorithm, collation |
 | `rouchdb-adapter-memory` | In-memory storage adapter |
 | `rouchdb-adapter-redb` | Persistent storage via [redb](https://crates.io/crates/redb) |
+| `rouchdb-adapter-indexeddb` | Browser-persistent storage via IndexedDB (WASM only) |
 | `rouchdb-adapter-http` | CouchDB HTTP client adapter with cookie auth |
 | `rouchdb-changes` | Changes feed and live streaming |
 | `rouchdb-replication` | CouchDB replication protocol |
