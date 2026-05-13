@@ -54,9 +54,11 @@ struct StoredDoc {
 }
 ```
 
-The `rev_tree` field stores the complete revision tree as a JSON string (not a
-nested JS object), keeping serialization deterministic and avoiding
-`serde-wasm-bindgen` edge cases with deeply nested structures.
+The `rev_tree` field stores the complete revision tree as a JSON string rather
+than a nested JS object. The rev tree is always read and written as a unit, so
+splitting it into rows would add complexity without benefit. Storing it as a
+string also avoids `serde-wasm-bindgen` edge cases with deeply nested structures
+and keeps serialization deterministic.
 
 ### `revs`
 
@@ -66,8 +68,9 @@ nested JS object), keeping serialization deterministic and avoiding
 separator ensures all revisions for a given document sort contiguously.
 
 **Indexes:**
-- `by_doc_id` (field: `doc_id`, `unique: false`) — allows fetching all
-  revisions for a given document ID during compaction and `bulk_get`.
+- `by_doc_id` (field: `doc_id`, `unique: false`) — groups revisions by document
+  ID. Created for future compaction optimisations; the current `compact()`
+  implementation uses `get_all` and filters in Rust (see [Compaction](#compaction)).
 
 **Value type:** `StoredRev`:
 
@@ -93,10 +96,10 @@ write for a given document.
 **Key path:** `seq` (a `u64` sequence number).
 
 **Indexes:**
-- `by_doc_id` (field: `doc_id`, `unique: false`) — allows removing the old
-  change entry when a document is updated (a document may appear at multiple
-  sequence positions during its lifetime, but only the latest is kept in the
-  final feed).
+- `by_doc_id` (field: `doc_id`, `unique: false`) — groups change entries by
+  document ID. Created for future use; the current implementation deletes old
+  change entries by their `seq` key directly (the existing sequence number is
+  read from `StoredDoc.seq` before the write transaction opens).
 
 **Value type:** `StoredChange`:
 
@@ -110,9 +113,9 @@ struct StoredChange {
 
 When a document is written, the adapter:
 
-1. Queries `by_doc_id` to find and delete any existing change entry for this
-   document ID.
-2. Inserts a new entry at the new (incremented) sequence number.
+1. Reads the document's previous `seq` from its `StoredDoc` entry (if any).
+2. Deletes the old `changes` entry at that sequence number.
+3. Inserts a new entry at the new (incremented) sequence number.
 
 This means each document appears at most once in the changes store, at its
 latest sequence. Querying `changes(since: N)` performs a key range scan
@@ -166,23 +169,35 @@ once regardless of how many revisions reference them.
 
 **Key path:** `key` (string).
 
-Two entries are stored:
+One entry is stored:
 
 | key          | value                                 |
 |--------------|---------------------------------------|
 | `update_seq` | `{ key: "update_seq", value: "<n>" }` |
-| `db_uuid`    | `{ key: "db_uuid", value: "<uuid>" }` |
 
 The `update_seq` value is stored as a string (not a JS number) to avoid
-precision loss for large 64-bit integers in JavaScript.
+precision loss for large 64-bit integers in JavaScript. The database name is
+kept only in the `IndexedDbAdapter` struct field — it is not persisted to
+IndexedDB because it can always be recovered from the `IDBDatabase.name`
+property.
+
+## Adapter Struct
+
+```rust
+pub struct IndexedDbAdapter {
+    db: idb::Database,      // handle to the open IndexedDB database
+    name: String,           // logical database name
+    update_seq: Cell<u64>,  // in-memory sequence counter (no lock needed)
+}
+```
 
 ## Sequence Counter
 
 The adapter keeps an in-memory `Cell<u64>` for the current `update_seq`. This
 is safe because the browser JavaScript runtime is single-threaded — there is no
-concurrent access. The counter is loaded from the `meta` store when
-`IndexedDbAdapter::open()` is called and is written back to the store on every
-document write.
+concurrent access and no `Mutex` or `RwLock` is needed. The counter is loaded
+from the `meta` store when `IndexedDbAdapter::open()` is called and is written
+back to the `meta` store on every document write.
 
 The counter is advanced **only after** a successful write: if the IndexedDB
 write transaction fails, the `Cell` is not updated and the sequence remains
@@ -194,9 +209,15 @@ IndexedDB write transactions auto-commit when no requests are pending at the
 end of a microtask. This means **all `put`/`delete` requests must be queued
 synchronously** before any `.await` point within a transaction.
 
-The adapter follows this rule throughout: each write method (e.g., writing to
-`docs`, `revs`, `changes`, and `meta` in a single `bulk_docs` call) stages all
-requests in a single transaction before awaiting any of them.
+The adapter follows this rule throughout:
+
+- **Writes** (`write_doc`): all five requests — `docs` put, `revs` put, old
+  `changes` delete, new `changes` put, `meta` put — are queued synchronously
+  in a single read-write transaction before any `await`.
+- **Batch reads** (`batch_load_rev_data`): all `get` requests for a set of
+  `(doc_id, rev)` pairs are queued synchronously in a single read-only
+  transaction before awaiting results. This is used by `all_docs` and
+  `changes` when `include_docs=true`.
 
 ## Two Write Modes
 
@@ -219,11 +240,29 @@ Used during replication from another adapter:
    using `build_path_from_revs` and merged into the tree.
 4. `_revisions` is stripped from the stored document body.
 
+## Compaction
+
+`compact()` reclaims storage by deleting revision bodies for non-leaf
+revisions. It runs in three phases, each in its own transaction:
+
+1. **Load** all `StoredDoc` records (read-only) and compute the set of leaf
+   revision strings for every document using `collect_leaves()`.
+2. **Load** all `StoredRev` records (read-only) and collect the `key` values
+   of entries whose `rev` is not in their document's leaf set.
+3. **Delete** all non-leaf `StoredRev` keys in a single read-write transaction,
+   with all delete requests queued synchronously before any `await`.
+
+The revision tree in `docs` is not modified — leaf determination always uses
+the live tree. After compaction, requesting a non-leaf revision body (e.g.,
+via `get()` with an explicit `rev`) will return an empty document body because
+its `StoredRev` entry no longer exists.
+
 ## Destroy
 
-`destroy()` clears all object stores and resets `update_seq` to `0` with a
-fresh UUID. The IndexedDB database itself remains open and usable — the adapter
-can continue to be used after destruction.
+`destroy()` clears all six object stores sequentially and resets the in-memory
+`update_seq` counter to `0`. The IndexedDB database object itself remains open
+and valid — the adapter can continue to be used after destruction (the next
+write will start from sequence `1`).
 
 ## Key Format Summary
 
