@@ -53,6 +53,7 @@
         trunk
         openssl
         pkg-config
+        mdbook
       ];
 
       OPENSSL_DEV = pkgs.openssl.dev;
