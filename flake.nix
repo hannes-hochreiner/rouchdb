@@ -1,5 +1,5 @@
 {
-  description = "A very basic flake";
+  description = "RouchDB development environment";
 
   inputs = {
     nixpkgs.url = "github:nixos/nixpkgs?ref=nixos-unstable";
@@ -14,24 +14,24 @@
     system = "x86_64-linux";
     pkgs = import nixpkgs {
       inherit system;
+      config.allowUnfree = true;
     };
     toolchain = with fenix.packages.${system}; combine [
-      # stable.cargo
-      # stable.rustc
-      # stable.rust-analyzer
-      # stable.rustfmt
-      # stable.clippy
-      stable.completeToolchain
-      targets.wasm32-unknown-unknown.stable.rust-std
+      latest.cargo
+      latest.rustc
+      latest.rust-analyzer
+      latest.rustfmt
+      latest.clippy
+      # latest.completeToolchain
+      targets.wasm32-unknown-unknown.latest.rust-std
     ];
   in {
-
     # packages.${system}.hello = nixpkgs.legacyPackages.x86_64-linux.hello;
 
     # packages.${system}.default = self.packages.x86_64-linux.hello;
 
     devShells.${system}.default = pkgs.mkShell {
-      name = "rust-custom-element";
+      name = "rouchdb";
       
       # Inherit inputs from checks.
       # checks = self.checks.${system};
@@ -53,7 +53,26 @@
         trunk
         openssl
         pkg-config
+        bash # default shell for vscode terminal
         mdbook
+        (vscode-with-extensions.override {
+          vscodeExtensions = with vscode-extensions; [
+            rust-lang.rust-analyzer
+            anthropic.claude-code
+            streetsidesoftware.code-spell-checker
+            fill-labs.dependi
+            tamasfe.even-better-toml
+            bbenoist.nix
+            thenuprojectcontributors.vscode-nushell-lang
+          # ] ++ pkgs.vscode-utils.extensionsFromVscodeMarketplace [
+          #   {
+          #     name = "remote-ssh-edit";
+          #     publisher = "ms-vscode-remote";
+          #     version = "0.47.2";
+          #     sha256 = "1hp6gjh4xp2m1xlm1jsdzxw9d8frkiidhph6nvl24d0h8z34w49g";
+          #   }
+          ];
+        })
       ];
 
       OPENSSL_DEV = pkgs.openssl.dev;
