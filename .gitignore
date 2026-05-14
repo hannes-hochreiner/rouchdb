@@ -4,3 +4,4 @@
 /docs/book/book
 /crates/rouchdb-server/fauxton/*
 !/crates/rouchdb-server/fauxton/.gitkeep
+/docs/superpowers
